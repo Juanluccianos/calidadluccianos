@@ -1041,7 +1041,8 @@ select.derivar { width: 100%; min-width: 0; max-width: 100%; flex: 1 1 100%; fon
 .fp-av input[type="color"] { width: 36px; height: 22px; padding: 0 2px; border-radius: 6px; cursor: pointer; }
 .fp-hab { grid-column: 2 / 6; margin-top: 6px; }
 .fp-hab > label { margin-bottom: 6px; }
-.fp-act { grid-column: 6; margin: 0; align-self: center; }
+.fp-act { grid-column: 6; grid-row: 2; margin: 0; align-self: center; }
+.solo-mirar { margin-top: 5px; }
 .chip-ck { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-pill); font-size: 12.5px; font-weight: 500; color: var(--text); cursor: pointer; background: var(--surface); }
 .chip-ck:has(input:checked) { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .chips { gap: 6px; }
@@ -1086,7 +1087,7 @@ select.derivar { width: 100%; min-width: 0; max-width: 100%; flex: 1 1 100%; fon
   .hoy-cab { grid-template-columns: minmax(0, 1fr); }
   .hoy-acc { justify-content: flex-start; }
   .fila-p { grid-template-columns: 56px repeat(2, minmax(0, 1fr)); }
-  .fp-hab { grid-column: 1 / -1; } .fp-act { grid-column: auto; }
+  .fp-hab { grid-column: 1 / -1; } .fp-act { grid-column: auto; grid-row: auto; }
 }
 @media (max-width: 860px) {
   .foco-grid { grid-template-columns: minmax(0, 1fr); }

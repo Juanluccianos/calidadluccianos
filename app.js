@@ -242,6 +242,8 @@ function etiquetaVence(t) {
   return { cls: '', txt: fmtCorta(t.vence) };
 }
 
+// Puestos que esta persona puede VER: la Líder todos; el equipo, el suyo y los que la Líder le habilitó (solo para mirar)
+const veoPuesto = (id) => esAdmin() || (S.vis || S.mios).includes(id);
 const puesto = (id) => (S.data?.puestos || []).find(p => p.id === id);
 const nombrePuesto = (id) => puesto(id)?.corto || 'Sin puesto';
 const puedeTocar = (t) => !S.ro && (esAdmin() || S.mios.includes(t.puesto_id));
@@ -329,6 +331,7 @@ async function cargarDatos(forzar = false) {
   if (!forzar && S.data && Date.now() - S.cargadoAt < 30e3) return S.data;
   S.data = await api('/api/tablero');
   S.mios = S.data.mis_puestos || [];
+  S.vis = S.data.ver_puestos || S.mios;
   S.cargadoAt = Date.now();
   pintarContadores();
   return S.data;
@@ -445,7 +448,7 @@ async function iniciar() {
   if (!S.token) return vistaLogin();
   try {
     const r = await api('/api/yo');
-    S.user = r.usuario; S.ro = !!r.usuario.solo_lectura; S.mios = r.mis_puestos || [];
+    S.user = r.usuario; S.ro = !!r.usuario.solo_lectura; S.mios = r.mis_puestos || []; S.vis = r.ver_puestos || S.mios;
     await cargarDatos(true);
   } catch (e) { if (S.token) { $('#app').innerHTML = `<div class="vacio"><span class="grande">No se pudo conectar</span>${esc(e.message)}<p><button class="btn btn-acento" onclick="location.reload()">Reintentar</button></p></div>`; } return; }
   if (!location.hash || !RUTAS.some(x => x.re.test(location.hash))) history.replaceState(null, '', location.pathname + location.search + rutaInicial());
@@ -563,11 +566,12 @@ function filtrar(lista) {
 
 async function vistaTablero(el, idTarea) {
   await cargarDatos();
-  const verRadar = esAdmin() || S.mios.length > 1;
+  const verRadar = esAdmin() || (S.vis || []).length > 1;
+  const otros = esAdmin() ? [] : (S.vis || []).filter(id => !S.mios.includes(id));
   if (!esAdmin() && !S.mios.length) { el.innerHTML = sinPuesto(); return; }
   el.innerHTML = `
     <div class="encabezado">
-      <div><h1>Tablero de Calidad</h1><p>${esAdmin() ? 'Pendientes de todo el equipo, ordenados por riesgo y vencimiento.' : 'Las tareas de tu puesto, ordenadas por riesgo y vencimiento.'}</p></div>
+      <div><h1>Tablero de Calidad</h1><p>${esAdmin() ? 'Pendientes de todo el equipo, ordenados por riesgo y vencimiento.' : (otros.length ? `Tus tareas y las de ${otros.map(nombrePuesto).join(', ')} (esas solo para mirar), ordenadas por riesgo y vencimiento.` : 'Las tareas de tu puesto, ordenadas por riesgo y vencimiento.')}</p></div>
       <div class="acciones">
         ${puedeCargar() ? `<button class="btn btn-acento" data-acc="carga-rapida">${ICO.rayo}Carga rápida</button><button class="btn" data-acc="nueva">${ICO.mas}Tarea detallada</button>` : ''}
         ${esAdmin() && !S.ro ? `<button class="btn" data-acc="rebalancear">${ICO.balanza}Rebalancear<span class="cnt hot" id="cnt-saturados"></span></button>` : ''}
@@ -579,7 +583,7 @@ async function vistaTablero(el, idTarea) {
     <section class="panel">
       <div class="filtros barra-f">
         <div class="campo ancho"><label for="f-q">Buscar</label><div class="campo-buscar">${ICO.search}<input id="f-q" placeholder="Tarea, lote, línea…" value="${esc(S.f.q)}"></div></div>
-        ${verRadar ? `<div class="campo"><label for="f-puesto">Puesto</label><select id="f-puesto"><option value="">Todos los puestos</option>${(S.data.puestos || []).filter(p => esAdmin() || S.mios.includes(p.id)).map(p => `<option value="${esc(p.id)}" ${p.id === S.f.puesto ? 'selected' : ''}>${esc(p.corto)}</option>`).join('')}</select></div>` : ''}
+        ${verRadar ? `<div class="campo"><label for="f-puesto">Puesto</label><select id="f-puesto"><option value="">Todos los puestos</option>${(S.data.puestos || []).filter(p => veoPuesto(p.id)).map(p => `<option value="${esc(p.id)}" ${p.id === S.f.puesto ? 'selected' : ''}>${esc(p.corto)}</option>`).join('')}</select></div>` : ''}
         <div class="campo"><label for="f-cat">Proceso</label><select id="f-cat"><option value="">Todos los procesos</option>${optsCategorias(S.f.cat)}</select></div>
         <div class="campo"><label for="f-urg">Urgencia</label><select id="f-urg"><option value="">Toda urgencia</option>${Object.entries(URG).map(([k, v]) => `<option value="${k}" ${k === S.f.urg ? 'selected' : ''}>${v.t}</option>`).join('')}</select></div>
         <div class="campo"><label for="f-est">Orden automático</label><select id="f-est">
@@ -646,7 +650,7 @@ async function vistaTablero(el, idTarea) {
 function pintarFoco(todas) {
   const caja = $('#foco');
   if (!caja) return;
-  const abiertas = porPrioridad(todas.filter(t => t.estado !== 'resuelto'));
+  const abiertas = porPrioridad(todas.filter(t => t.estado !== 'resuelto' && (esAdmin() || S.mios.includes(t.puesto_id))));
   const top = abiertas.slice(0, 3);
   const rh = S.data.resueltas_hoy || { n: 0, horas: 0 };
   const fecha = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -669,7 +673,7 @@ function pintarFoco(todas) {
 function pintarRadar() {
   const caja = $('#radar');
   if (!caja) return;
-  const lista = (S.data.puestos || []).filter(p => esAdmin() || S.mios.includes(p.id));
+  const lista = (S.data.puestos || []).filter(p => veoPuesto(p.id));
   caja.innerHTML = lista.map(p => {
     const st = stats(p.id);
     const pct = Math.min(100, Math.round((st.activas / st.max) * 100));
@@ -767,7 +771,7 @@ function tablaTareas(lista) {
 // ---------------------------------------------------------------------------
 async function vistaHoy(el) {
   await cargarDatos();
-  const elegibles = (S.data.puestos || []).filter(p => esAdmin() || S.mios.includes(p.id));
+  const elegibles = (S.data.puestos || []).filter(p => veoPuesto(p.id));
   if (!esAdmin() && !S.mios.length) { el.innerHTML = sinPuesto(); return; }
   if (!S.hoyPuesto || !elegibles.some(p => p.id === S.hoyPuesto)) S.hoyPuesto = S.mios[0] || elegibles[0]?.id;
   const p = puesto(S.hoyPuesto);
@@ -778,7 +782,7 @@ async function vistaHoy(el) {
       ${elegibles.length > 1 ? `<div class="campo" style="margin:0;min-width:220px"><label for="h-puesto">Puesto</label><select id="h-puesto">${elegibles.map(x => `<option value="${esc(x.id)}" ${x.id === S.hoyPuesto ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select></div>` : ''}
     </div>
     <section class="hoy-cab panel">
-      <div class="hoy-quien">${avatarPuesto(p)}<div><b>${esc(p?.nombre || '')}</b><small>${esc(p?.area || '')}</small></div></div>
+      <div class="hoy-quien">${avatarPuesto(p)}<div><b>${esc(p?.nombre || '')}</b><small>${esc(p?.area || '')}</small>${!toca && !S.ro ? '<span class="tag solo-mirar">Solo para mirar</span>' : ''}</div></div>
       <div class="hoy-prog" id="h-prog"></div>
       <div class="hoy-acc">
         ${toca ? `<button class="btn btn-acento" data-acc="nueva" data-puesto="${esc(S.hoyPuesto)}">${ICO.mas}Agregar pendiente</button>
@@ -890,7 +894,7 @@ async function copiarWhatsApp(pid) {
 // ---------------------------------------------------------------------------
 async function vistaHistorial(el) {
   await cargarDatos();
-  const elegibles = (S.data.puestos || []).filter(p => esAdmin() || S.mios.includes(p.id));
+  const elegibles = (S.data.puestos || []).filter(p => veoPuesto(p.id));
   const F = S.fh || (S.fh = { desde: diaAR(-30), hasta: hoy(), puesto: '', q: '' });
   el.innerHTML = `
     <div class="encabezado"><div><h1>Historial</h1><p>Tareas cerradas y el tiempo real que llevó cada una.</p></div>
@@ -958,6 +962,7 @@ async function vistaEquipo(el) {
         <div class="campo fp-mail"><label>Mail de la persona</label><input data-f="email" type="text" inputmode="email" value="${esc(p.email || '')}" placeholder="nombre@luccianos.com.ar" ${ro ? 'disabled' : ''}></div>
         <div class="campo fp-max"><label>Máx. activas</label><input data-f="max_activas" type="number" min="1" max="20" value="${p.max_activas}" ${ro ? 'disabled' : ''}></div>
         <div class="fp-hab"><label>Procesos que domina <span class="muted">(para sugerir derivaciones)</span></label><div class="chips">${CATEGORIAS.map(c => `<label class="chip-ck"><input type="checkbox" data-hab="${esc(c)}" ${(p.habilidades || []).includes(c) ? 'checked' : ''} ${ro ? 'disabled' : ''}>${esc(c)}</label>`).join('')}</div></div>
+        <div class="fp-hab"><label>También puede ver el trabajo de <span class="muted">(solo para mirar, no lo puede modificar)</span></label><div class="chips">${lista.filter(o => o.id && o.id !== p.id).map(o => `<label class="chip-ck"><input type="checkbox" data-ve="${esc(o.id)}" ${(p.ve || []).includes(o.id) ? 'checked' : ''} ${ro ? 'disabled' : ''}>${esc(o.corto)}</label>`).join('') || '<span class="muted small">Guardá los puestos nuevos para poder elegirlos acá.</span>'}</div></div>
         <label class="check fp-act"><input type="checkbox" data-f="activo" ${p.activo !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}>Activo</label>
       </div>`).join('');
     $$('.fila-p', $('#lista-p')).forEach(f => {
@@ -966,6 +971,11 @@ async function vistaEquipo(el) {
         const k = inp.dataset.f;
         lista[i][k] = inp.type === 'checkbox' ? inp.checked : inp.value;
         if (k === 'color' || k === 'corto') $('.av-p', f).outerHTML = avatarPuesto(lista[i]);
+      });
+      $$('[data-ve]', f).forEach(inp => inp.onchange = () => {
+        const v = new Set(lista[i].ve || []);
+        inp.checked ? v.add(inp.dataset.ve) : v.delete(inp.dataset.ve);
+        lista[i].ve = [...v];
       });
       $$('[data-hab]', f).forEach(inp => inp.onchange = () => {
         const h = new Set(lista[i].habilidades || []);
@@ -976,7 +986,7 @@ async function vistaEquipo(el) {
   };
   pintar();
   if (ro) return;
-  $('#b-mas-p').onclick = () => { lista.push({ id: '', nombre: 'Nuevo puesto', corto: 'Nuevo', area: '', email: '', max_activas: 3, color: '#4f7a28', habilidades: [], activo: true }); pintar(); $$('.fila-p').pop()?.querySelector('[data-f="nombre"]')?.select(); };
+  $('#b-mas-p').onclick = () => { lista.push({ id: '', nombre: 'Nuevo puesto', corto: 'Nuevo', area: '', email: '', max_activas: 3, color: '#4f7a28', habilidades: [], ve: [], activo: true }); pintar(); $$('.fila-p').pop()?.querySelector('[data-f="nombre"]')?.select(); };
   $('#b-guardar-p').onclick = (e) => conBoton(e.currentTarget, async () => {
     const r2 = await api('/api/puestos', { method: 'PUT', body: { puestos: lista } });
     lista = r2.puestos.map(p => ({ ...p }));
@@ -1013,7 +1023,7 @@ function modalTarea(t, def = {}) {
   if (!t && !puedeCargar()) return;
   const nueva = !t;
   const toca = nueva ? puedeCargar() : puedeTocar(t);
-  const x = t || { titulo: '', categoria: CATEGORIAS[0], puesto_id: def.puesto_id || S.f.puesto || S.mios[0] || puestosElegibles()[0]?.id, urgencia: 'media', vence: hoy(), estado: 'pendiente', checklist: [], notas: '' };
+  const x = t || { titulo: '', categoria: CATEGORIAS[0], puesto_id: def.puesto_id || (puestosElegibles().some(p => p.id === S.f.puesto) ? S.f.puesto : '') || S.mios[0] || puestosElegibles()[0]?.id, urgencia: 'media', vence: hoy(), estado: 'pendiente', checklist: [], notas: '' };
   const dis = toca ? '' : 'disabled';
   const elegibles = puestosElegibles();
   const puestoCampo = esAdmin() || elegibles.length > 1
